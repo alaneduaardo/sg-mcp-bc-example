@@ -1,0 +1,41 @@
+#!/bin/sh
+# Pre-commit hook: formatting, static analysis, then the test suite. Any failing
+# step aborts the commit (steps ordered fastest-first for quick feedback).
+#
+# Tracked in the repo (not .git/hooks, which isn't versioned). Activate once
+# per clone with:
+#
+#     git config core.hooksPath .githooks
+#
+# Bypass for a single commit (e.g. WIP) with: git commit --no-verify
+
+set -e
+
+# 1. Formatting gate.
+echo "▶ pre-commit: gofmt"
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+	echo "✗ gofmt: these files need formatting (run: gofmt -w .):"
+	echo "$unformatted"
+	exit 1
+fi
+
+# 2. go vet — built-in static analysis, always available.
+echo "▶ pre-commit: go vet ./..."
+go vet ./...
+
+# 3. golangci-lint — runs the configured linters, including the depguard rule
+#    that enforces the architecture's no-lateral-use-case-imports invariant.
+if command -v golangci-lint >/dev/null 2>&1; then
+	echo "▶ pre-commit: golangci-lint run"
+	golangci-lint run ./...
+else
+	echo "⚠ golangci-lint not installed — skipping; the depguard lateral-import"
+	echo "  rule in .golangci.yml is NOT enforced (install: https://golangci-lint.run)"
+fi
+
+# 4. Tests.
+echo "▶ pre-commit: go test ./..."
+go test ./...
+
+echo "✓ pre-commit passed"
