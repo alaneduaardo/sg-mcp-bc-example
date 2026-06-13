@@ -1,13 +1,19 @@
 // Command server is the MCP entry point: it wires the Sourcegraph client and
 // registers the bc_* tools over stdio. Concrete dependencies are wired here
 // explicitly — no DI framework.
+//
+// Error handling is split by altitude: the domain owns error semantics (each
+// use-case error carries its contract code), and the entrypoint owns only
+// entrypoint concerns — rendering the error to the wire as JSON and recording it
+// in structured logs enriched with which tool and request it came from. The
+// entrypoint classifies nothing; it reads the code the domain attached.
 package main
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"flag"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -15,6 +21,7 @@ import (
 
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/findtargets"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/inspecttarget"
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/apperr"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/sgclient"
 )
 
@@ -24,17 +31,22 @@ func main() {
 	endpoint := flag.String("endpoint", defaultEndpoint, "Sourcegraph GraphQL endpoint")
 	flag.Parse()
 
+	// stdout is the JSON-RPC channel; logs are JSON on stderr so the two streams
+	// stay segregated and the protocol stream is never corrupted.
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+
 	client := sgclient.New(*endpoint, sgclient.WithToken(os.Getenv("SRC_ACCESS_TOKEN")))
 
 	s := server.NewMCPServer("bc", "0.1.0",
 		server.WithToolCapabilities(true),
 	)
 
-	s.AddTool(findTargetsTool(), findTargetsHandler(client))
-	s.AddTool(inspectTargetTool(), inspectTargetHandler(client))
+	s.AddTool(findTargetsTool(), findTargetsHandler(client, logger))
+	s.AddTool(inspectTargetTool(), inspectTargetHandler(client, logger))
 
 	if err := server.ServeStdio(s); err != nil {
-		log.Fatalf("server error: %v", err)
+		logger.Error("server stopped", "error", err.Error())
+		os.Exit(1)
 	}
 }
 
@@ -52,6 +64,27 @@ func findTargetsTool() mcp.Tool {
 	)
 }
 
+func findTargetsHandler(client *sgclient.Client, logger *slog.Logger) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		query := req.GetString("query", "")
+		maxRepos := req.GetInt("max_repos", findtargets.DefaultMaxRepos)
+
+		log := logger.With(slog.Group("request",
+			"tool", "bc_find_targets",
+			"query", query,
+			"max_repos", maxRepos,
+		))
+		log.Debug("tool call")
+
+		out, err := findtargets.Execute(ctx, client, findtargets.Input{Query: query, MaxRepos: maxRepos})
+		if err != nil {
+			return respondError(log, err), nil
+		}
+
+		return respondJSON(log, out)
+	}
+}
+
 func inspectTargetTool() mcp.Tool {
 	return mcp.NewTool("bc_inspect_target",
 		mcp.WithDescription("Fetch full file content in the context of an identified target, "+
@@ -63,62 +96,71 @@ func inspectTargetTool() mcp.Tool {
 	)
 }
 
-func findTargetsHandler(client *sgclient.Client) server.ToolHandlerFunc {
+func inspectTargetHandler(client *sgclient.Client, logger *slog.Logger) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		query, err := req.RequireString("query")
-		if err != nil {
-			return mcp.NewToolResultError("INVALID_QUERY: " + err.Error()), nil
-		}
-		maxRepos := req.GetInt("max_repos", findtargets.DefaultMaxRepos)
-
-		out, err := findtargets.Execute(ctx, client, findtargets.Input{Query: query, MaxRepos: maxRepos})
-		if err != nil {
-			switch {
-			case errors.Is(err, findtargets.ErrInvalidQuery):
-				return mcp.NewToolResultError("INVALID_QUERY: " + err.Error()), nil
-			case errors.Is(err, findtargets.ErrUpstream):
-				return mcp.NewToolResultError("UPSTREAM_UNAVAILABLE: " + err.Error()), nil
-			default:
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-		}
-		res, err := mcp.NewToolResultJSON(out)
-		if err != nil {
-			return mcp.NewToolResultErrorFromErr("failed to encode result", err), nil
-		}
-		return res, nil
-	}
-}
-
-func inspectTargetHandler(client *sgclient.Client) server.ToolHandlerFunc {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		repo, err := req.RequireString("repo")
-		if err != nil {
-			return mcp.NewToolResultError("INVALID_INPUT: " + err.Error()), nil
-		}
-		path, err := req.RequireString("path")
-		if err != nil {
-			return mcp.NewToolResultError("INVALID_INPUT: " + err.Error()), nil
-		}
+		repo := req.GetString("repo", "")
+		path := req.GetString("path", "")
 		rev := req.GetString("rev", "")
+
+		log := logger.With(slog.Group("request",
+			"tool", "bc_inspect_target",
+			"repo", repo,
+			"path", path,
+			"rev", rev,
+		))
+		log.Debug("tool call")
 
 		out, err := inspecttarget.Execute(ctx, client, inspecttarget.Input{Repo: repo, Path: path, Rev: rev})
 		if err != nil {
-			switch {
-			case errors.Is(err, inspecttarget.ErrNotFound):
-				return mcp.NewToolResultError("NOT_FOUND: " + err.Error()), nil
-			case errors.Is(err, inspecttarget.ErrTooLarge):
-				return mcp.NewToolResultError("TOO_LARGE: " + err.Error()), nil
-			case errors.Is(err, inspecttarget.ErrUpstream):
-				return mcp.NewToolResultError("UPSTREAM_UNAVAILABLE: " + err.Error()), nil
-			default:
-				return mcp.NewToolResultError(err.Error()), nil
-			}
+			return respondError(log, err), nil
 		}
-		res, err := mcp.NewToolResultJSON(out)
-		if err != nil {
-			return mcp.NewToolResultErrorFromErr("failed to encode result", err), nil
-		}
-		return res, nil
+
+		return respondJSON(log, out)
 	}
+}
+
+// errorBody is the decoupled error the client receives: code and message as
+// separate fields (no stutter, no internal chain). The cause stays in the logs.
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// respondError logs the error as a structured group and returns the decoupled
+// form to the client. The domain set the code/message/cause; the entrypoint only
+// reads and renders. The Error log carries the request context (via the logger's
+// "request" group) plus a nested "error" group {code, message, cause} — full
+// diagnostic context, not a flat string. A non-coded error is recorded as
+// INTERNAL.
+func respondError(log *slog.Logger, err error) *mcp.CallToolResult {
+	e := apperr.As(err)
+	if e == nil {
+		log.Error("tool call failed", slog.Group("error", "code", "INTERNAL", "message", err.Error()))
+		return clientError("INTERNAL", err.Error())
+	}
+
+	attrs := []any{"code", e.Code(), "message", e.Message()}
+	if cause := e.Cause(); cause != nil {
+		attrs = append(attrs, "cause", cause.Error())
+	}
+	log.Error("tool call failed", slog.Group("error", attrs...))
+
+	return clientError(e.Code(), e.Message())
+}
+
+// clientError renders the decoupled {code, message} JSON the client sees.
+func clientError(code, message string) *mcp.CallToolResult {
+	body, _ := json.Marshal(errorBody{Code: code, Message: message})
+	return mcp.NewToolResultError(string(body))
+}
+
+// respondJSON encodes the use-case output as a JSON tool result, logging and
+// surfacing an encode failure as an internal error.
+func respondJSON(log *slog.Logger, out any) (*mcp.CallToolResult, error) {
+	res, err := mcp.NewToolResultJSON(out)
+	if err != nil {
+		log.Error("encode failed", slog.Group("error", "code", "INTERNAL", "message", err.Error()))
+		return nil, err
+	}
+	return res, nil
 }

@@ -6,16 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/apperr"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/sgclient"
 )
 
 type fakeFetcher struct {
 	gotRepo, gotPath, gotRev string
+	calls                    int
 	ret                      sgclient.FileContent
 	err                      error
 }
 
 func (f *fakeFetcher) FetchFile(_ context.Context, repo, path, rev string) (sgclient.FileContent, error) {
+	f.calls++
 	f.gotRepo, f.gotPath, f.gotRev = repo, path, rev
 	return f.ret, f.err
 }
@@ -39,11 +42,37 @@ func TestExecute_HappyPath(t *testing.T) {
 	}
 }
 
+func TestExecute_InvalidInput(t *testing.T) {
+	cases := map[string]Input{
+		"empty repo": {Repo: "", Path: "f.go"},
+		"empty path": {Repo: "r", Path: ""},
+		"blank repo": {Repo: "   ", Path: "f.go"},
+	}
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeFetcher{}
+			_, err := Execute(context.Background(), f, in)
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("err = %v, want ErrInvalidInput", err)
+			}
+			if code, _ := apperr.Code(err); code != "INVALID_INPUT" {
+				t.Errorf("contract code = %q, want INVALID_INPUT", code)
+			}
+			if f.calls != 0 {
+				t.Errorf("fetcher called %d times; invalid input must not reach upstream", f.calls)
+			}
+		})
+	}
+}
+
 func TestExecute_NotFound(t *testing.T) {
 	f := &fakeFetcher{err: sgclient.ErrNotFound}
 	_, err := Execute(context.Background(), f, Input{Repo: "r", Path: "missing.go"})
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+	if code, _ := apperr.Code(err); code != "NOT_FOUND" {
+		t.Errorf("contract code = %q, want NOT_FOUND", code)
 	}
 }
 
@@ -52,6 +81,9 @@ func TestExecute_UpstreamError(t *testing.T) {
 	_, err := Execute(context.Background(), f, Input{Repo: "r", Path: "f.go"})
 	if !errors.Is(err, ErrUpstream) {
 		t.Errorf("err = %v, want ErrUpstream", err)
+	}
+	if code, _ := apperr.Code(err); code != "UPSTREAM_UNAVAILABLE" {
+		t.Errorf("contract code = %q, want UPSTREAM_UNAVAILABLE", code)
 	}
 }
 
@@ -63,6 +95,9 @@ func TestExecute_TooLarge(t *testing.T) {
 	_, err := Execute(context.Background(), f, Input{Repo: "r", Path: "big.go"})
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("err = %v, want ErrTooLarge", err)
+	}
+	if code, _ := apperr.Code(err); code != "TOO_LARGE" {
+		t.Errorf("contract code = %q, want TOO_LARGE", code)
 	}
 	if !strings.Contains(err.Error(), "limit") {
 		t.Errorf("TOO_LARGE error should state the limit: %v", err)

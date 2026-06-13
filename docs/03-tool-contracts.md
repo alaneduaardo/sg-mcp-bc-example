@@ -4,6 +4,8 @@
 
 **Public-API boundary (declared everywhere it applies):** target resolution and file reading run for real against the public Sourcegraph instance; step execution and publication are Enterprise surfaces — `bc_request_publish` ships as a documented contract, not an implementation.
 
+**Error model:** every tool returns errors to the client as a structured `{code, message}` — a stable, machine-readable `code` plus a short, code-decoupled human message. The underlying **reason / limit / cause is deliberately not sent to the client**; it is recorded server-side in the structured logs (a nested `error.cause` alongside the `request` context) for diagnosis. The error lists below are the client-facing codes; the detail lives only in the logs.
+
 ---
 
 ## 1. `bc_find_targets` — discovery (the `on:` clause factory)
@@ -27,7 +29,7 @@ Purpose: turn a search query into batch-change targeting. Output is shaped for s
     "total_repos": "integer",
     "truncated": "boolean"
   },
-  "errors": ["INVALID_QUERY (with reason)", "UPSTREAM_UNAVAILABLE"]
+  "errors": ["INVALID_QUERY", "UPSTREAM_UNAVAILABLE"]
 }
 ```
 
@@ -49,7 +51,7 @@ Purpose: full file content, in the context of an identified target, so the agent
     "rev_resolved": "string",
     "size_bytes": "integer"
   },
-  "errors": ["NOT_FOUND", "TOO_LARGE (limit stated)", "UPSTREAM_UNAVAILABLE"]
+  "errors": ["INVALID_INPUT", "NOT_FOUND", "TOO_LARGE", "UPSTREAM_UNAVAILABLE"]
 }
 ```
 

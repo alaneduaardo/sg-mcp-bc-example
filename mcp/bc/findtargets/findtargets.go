@@ -7,9 +7,8 @@ package findtargets
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/apperr"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/targeting"
 )
 
@@ -19,10 +18,11 @@ const (
 	MaxAllowedRepos = 100
 )
 
-// Sentinel errors callers (the MCP handler) branch on to pick a protocol code.
+// Coded sentinel errors (tool contract §1). The code is the domain's promise;
+// the handler reads it back, it does not assign it. errors.Is still matches.
 var (
-	ErrInvalidQuery = errors.New("findtargets: invalid query")
-	ErrUpstream     = errors.New("findtargets: upstream unavailable")
+	ErrInvalidQuery = apperr.New("INVALID_QUERY", "invalid query")
+	ErrUpstream     = apperr.New("UPSTREAM_UNAVAILABLE", "upstream unavailable")
 )
 
 // Searcher is what this use case needs from code intelligence, declared here on
@@ -57,7 +57,7 @@ type Output struct {
 func Execute(ctx context.Context, searcher Searcher, in Input) (Output, error) {
 	q, err := targeting.NewQuery(in.Query)
 	if err != nil {
-		return Output{}, fmt.Errorf("%w: %v", ErrInvalidQuery, err)
+		return Output{}, ErrInvalidQuery.Wrap(err)
 	}
 
 	maxRepos := in.MaxRepos
@@ -70,7 +70,7 @@ func Execute(ctx context.Context, searcher Searcher, in Input) (Output, error) {
 
 	targets, err := searcher.Search(ctx, q, maxRepos)
 	if err != nil {
-		return Output{}, fmt.Errorf("%w: %v", ErrUpstream, err)
+		return Output{}, ErrUpstream.Wrap(err)
 	}
 
 	out := Output{
@@ -85,5 +85,6 @@ func Execute(ctx context.Context, searcher Searcher, in Input) (Output, error) {
 			SamplePaths:     t.SamplePaths,
 		})
 	}
+
 	return out, nil
 }

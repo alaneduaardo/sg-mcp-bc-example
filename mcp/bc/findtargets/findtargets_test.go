@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/apperr"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/targeting"
 )
 
@@ -94,6 +95,9 @@ func TestExecute_InvalidQuery(t *testing.T) {
 	if !errors.Is(err, ErrInvalidQuery) {
 		t.Fatalf("err = %v, want ErrInvalidQuery", err)
 	}
+	if code, _ := apperr.Code(err); code != "INVALID_QUERY" {
+		t.Errorf("contract code = %q, want INVALID_QUERY", code)
+	}
 	if f.gotMax != 0 {
 		t.Error("searcher should not be called when the query is invalid")
 	}
@@ -105,5 +109,8 @@ func TestExecute_UpstreamError(t *testing.T) {
 	_, err := Execute(context.Background(), f, Input{Query: "q", MaxRepos: 10})
 	if !errors.Is(err, ErrUpstream) {
 		t.Errorf("err = %v, want ErrUpstream", err)
+	}
+	if code, _ := apperr.Code(err); code != "UPSTREAM_UNAVAILABLE" {
+		t.Errorf("contract code = %q, want UPSTREAM_UNAVAILABLE", code)
 	}
 }

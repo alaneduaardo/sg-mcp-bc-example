@@ -57,6 +57,8 @@ mcp/bc/
         batchspec/     → the product's central artifact: aggregate, invariants, YAML (planned)
         targeting/     → value objects: normalized Query + resolved Targets
         sgclient/      → Sourcegraph transport: HTTP, auth, GraphQL, error mapping
+        apperr/        → coded application errors (contract code + message) shared
+                         by the use cases and rendered by the server
 docs/                  → the analysis and design documents (the primary deliverable)
 ```
 
