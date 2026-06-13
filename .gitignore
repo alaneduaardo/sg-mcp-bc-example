@@ -9,7 +9,6 @@
 *.dylib
 
 # Built command binaries (`go build ./mcp/bc/cmd/...` with no -o drops these here)
-/smoke
 /server
 
 # Test binary, built with `go test -c`

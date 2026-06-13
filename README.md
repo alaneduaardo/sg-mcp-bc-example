@@ -48,7 +48,6 @@ The structured batch spec is not a limitation — it is the guardrail: an agent 
 ```
 mcp/bc/
     cmd/server/        → MCP entry point: wiring + tool registration (stdio)
-    cmd/smoke/         → throwaway CLI: hit the public instance directly
     findtargets/       → use case (bc_find_targets)
     inspecttarget/     → use case (bc_inspect_target)
     createspec/        → use case (planned)
@@ -82,10 +81,6 @@ On collision, Clean Architecture / DDD / Hexagonal win over DRY/YAGNI/KISS here 
 ```sh
 # Run the MCP server over stdio (defaults to the public instance).
 go run ./mcp/bc/cmd/server
-
-# Ad-hoc transport check against real public code (no MCP client needed):
-go run ./mcp/bc/cmd/smoke -q 'lang:go errgroup.WithContext count:20' -n 5
-go run ./mcp/bc/cmd/smoke -file github.com/moov-io/watchman -path internal/download/download.go
 ```
 
 **Connecting an MCP client** (e.g. Claude Code) — build a binary and point the client at it over stdio:
