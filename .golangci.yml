@@ -1,0 +1,71 @@
+# Machine-checks the architecture's absolute rule: use cases never import each
+# other (02-architecture.md §"Import rules"). Go's internal/ boundary gives the
+# outer wall for free; this gives the lateral wall.
+#
+# One rule per use case, each denying the other four. A use case's own path is
+# absent from its deny list, so self-reference within the package is fine.
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - depguard
+
+linters-settings:
+  depguard:
+    rules:
+      findtargets-no-lateral:
+        files: ["**/mcp/bc/findtargets/**"]
+        deny:
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/inspecttarget"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/createspec"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/preview"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/requestpublish"
+            desc: "lateral import between use cases is forbidden"
+      inspecttarget-no-lateral:
+        files: ["**/mcp/bc/inspecttarget/**"]
+        deny:
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/findtargets"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/createspec"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/preview"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/requestpublish"
+            desc: "lateral import between use cases is forbidden"
+      createspec-no-lateral:
+        files: ["**/mcp/bc/createspec/**"]
+        deny:
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/findtargets"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/inspecttarget"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/preview"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/requestpublish"
+            desc: "lateral import between use cases is forbidden"
+      preview-no-lateral:
+        files: ["**/mcp/bc/preview/**"]
+        deny:
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/findtargets"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/inspecttarget"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/createspec"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/requestpublish"
+            desc: "lateral import between use cases is forbidden"
+      requestpublish-no-lateral:
+        files: ["**/mcp/bc/requestpublish/**"]
+        deny:
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/findtargets"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/inspecttarget"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/createspec"
+            desc: "lateral import between use cases is forbidden"
+          - pkg: "github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/preview"
+            desc: "lateral import between use cases is forbidden"
