@@ -10,11 +10,32 @@ This repository is two things at once: a small, runnable artifact, and the reaso
 
 ## The proposal, in brief
 
-Sourcegraph's Code Plane owns both the agent integration layer (MCP) and the action layer (Batch Changes) — but today MCP only transports *read* capabilities from the neighboring Code Understanding surface. This POC sketches an MCP **write port** over the Batch Changes domain:
+Sourcegraph's Code Plane owns both the agent integration layer (MCP) and the action layer (Batch Changes) — but today MCP only transports *read* capabilities from the neighboring Code Understanding surface. This POC sketches an MCP **write port** over the Batch Changes domain — five tools an agent drives, in conversation with a developer, to compose a batch change from search results:
 
+```mermaid
+flowchart TD
+    dev(["Developer + agent — in conversation"])
+    dev --> ft
+
+    subgraph compose["Composition layer — implemented · runs against the public API · dry-run only"]
+        direction TB
+        ft["bc_find_targets<br/>search query → targets + normalized_query"]
+        it["bc_inspect_target<br/>read file content → ground the steps"]
+        cs["bc_create_spec<br/>assemble + validate the batch spec"]
+        pv["bc_preview<br/>resolve what the spec would touch"]
+
+        ft -->|"targets to inspect"| it
+        ft -->|"normalized_query → on.repositoriesMatchingQuery"| cs
+        it -->|"grounded steps"| cs
+        cs -->|"spec_yaml"| pv
+    end
+
+    pv --> rp["bc_request_publish<br/>returns NOT_IMPLEMENTED + governance semantics"]
+    rp --> gate{{"Human approval — an invariant, not a feature flag"}}
+    gate -. "v2 · gated on the measurement layer" .-> ent["Execution + publication<br/>Enterprise surface · out of scope"]
 ```
-bc_find_targets → bc_inspect_target → bc_create_spec → bc_preview → bc_request_publish
-```
+
+Discovery feeds composition directly: `bc_find_targets`' `normalized_query` becomes the spec's `on.repositoriesMatchingQuery`, and `bc_inspect_target` grounds the transformation steps. Everything up to `bc_preview` is **dry-run** against the public API; `bc_request_publish` is the governed refusal — the thesis demonstrated by what it *won't* do.
 
 The structured batch spec is not a limitation — it is the guardrail: an agent that proposes a *validatable, diffable, human-reviewable* artifact before anything executes is the enterprise-viable shape of agent-driven change. v1 deliberately refuses to publish, because the measurement layer that would make publication safe (blast-radius scoring, CI-signal tiering, canary stop rules) does not yet exist.
 
