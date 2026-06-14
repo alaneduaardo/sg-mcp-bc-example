@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/apperr"
-	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/sgclient"
 )
 
 // MaxFileBytes caps the content this tool will return (tool contract §2).
@@ -50,10 +49,20 @@ func newFileRef(repo, path, rev string) (fileRef, error) {
 	return fileRef{repo: repo, path: path, rev: rev}, nil
 }
 
-// Fetcher is what this use case needs from code intelligence. *sgclient.Client
-// satisfies it.
+// File is the content this use case needs from code intelligence, in its own
+// terms — so the use case stays decoupled from any particular transport.
+type File struct {
+	Content     string
+	RevResolved string
+	SizeBytes   int
+}
+
+// Fetcher is the port over code intelligence, declared here in the use case's
+// own vocabulary (no transport types). found == false means the file does not
+// exist — a normal outcome, not an error; a non-nil error is a transport
+// failure. An adapter at the composition root binds this to sgclient.
 type Fetcher interface {
-	FetchFile(ctx context.Context, repo, path, rev string) (sgclient.FileContent, error)
+	FetchFile(ctx context.Context, repo, path, rev string) (file File, found bool, err error)
 }
 
 // Input is the tool input (bc_inspect_target).
@@ -78,22 +87,19 @@ func Execute(ctx context.Context, fetcher Fetcher, in Input) (Output, error) {
 		return Output{}, err
 	}
 
-	fc, err := fetcher.FetchFile(ctx, ref.repo, ref.path, ref.rev)
+	file, found, err := fetcher.FetchFile(ctx, ref.repo, ref.path, ref.rev)
 	if err != nil {
-		if errors.Is(err, sgclient.ErrNotFound) {
-			return Output{}, ErrNotFound.Wrap(err)
-		}
-
 		return Output{}, ErrUpstream.Wrap(err)
 	}
-
-	if fc.SizeBytes > MaxFileBytes {
-		return Output{}, ErrTooLarge.Wrap(fmt.Errorf("%d bytes exceeds limit of %d", fc.SizeBytes, MaxFileBytes))
+	if !found {
+		return Output{}, ErrNotFound.Wrap(fmt.Errorf("%s: %s", ref.repo, ref.path))
 	}
 
-	return Output{
-		Content:     fc.Content,
-		RevResolved: fc.RevResolved,
-		SizeBytes:   fc.SizeBytes,
-	}, nil
+	if file.SizeBytes > MaxFileBytes {
+		return Output{}, ErrTooLarge.Wrap(fmt.Errorf("%d bytes exceeds limit of %d", file.SizeBytes, MaxFileBytes))
+	}
+
+	// File and Output share a shape here; the explicit conversion makes the
+	// mapping a compile-time check if they ever diverge.
+	return Output(file), nil
 }

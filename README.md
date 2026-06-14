@@ -80,26 +80,39 @@ On collision, Clean Architecture / DDD / Hexagonal win over DRY/YAGNI/KISS here 
 
 **Prerequisites:** Go 1.25+.
 
+**Configuration** (via environment, [12-factor](https://12factor.net/config) — see [`.env.example`](.env.example)):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `SG_BASE_URL` | **yes** | Sourcegraph GraphQL endpoint, e.g. `https://sourcegraph.com/.api/graphql`. Also settable with `-endpoint`. |
+| `SG_ACCESS_TOKEN` | no | Access token, sent as `Authorization: token …`. The public instance needs none; enterprise instances do. |
+
+The server **fails fast** if no endpoint is configured (it does not assume a default), so misconfiguration is caught at startup, not as a confusing `UPSTREAM_UNAVAILABLE` per call.
+
 ```sh
-# Run the MCP server over stdio (defaults to the public instance).
+export SG_BASE_URL=https://sourcegraph.com/.api/graphql   # required
+# export SG_ACCESS_TOKEN=…                                # enterprise only
 go run ./mcp/bc/cmd/server
 ```
 
-**Connecting an MCP client** (e.g. Claude Code) — build a binary and point the client at it over stdio:
+Locally, `direnv` (an [`.envrc`](.envrc) with `dotenv`) or `set -a; . ./.env; set +a` loads `.env` for you; in CI/CD the variables are injected by the platform. The binary itself reads only the environment — it never loads a `.env` file.
+
+**Connecting an MCP client** (e.g. Claude Code) — build a binary and point the client at it over stdio, passing the config through:
 
 ```sh
-go build -o bin/bc-server ./mcp/bc/cmd/server
+go build -o /tmp/bc-server ./mcp/bc/cmd/server
 ```
 
 ```json
 {
   "mcpServers": {
-    "bc": { "command": "/absolute/path/to/bin/bc-server" }
+    "bc": {
+      "command": "/tmp/bc-server",
+      "env": { "SG_BASE_URL": "https://sourcegraph.com/.api/graphql" }
+    }
   }
 }
 ```
-
-**Authentication:** the public instance needs none. For an enterprise instance, set `SRC_ACCESS_TOKEN` (sent as `Authorization: token …`) and override the endpoint with `-endpoint https://<your-instance>/.api/graphql`.
 
 ---
 
@@ -110,6 +123,24 @@ go test ./...        # full suite (unit tests use httptest with canned GraphQL)
 go test -race ./...  # race-enabled
 go vet ./...
 ```
+
+### Local environment via direnv (caveat: must be activated)
+
+The tracked [`.envrc`](.envrc) loads `.env` for you — but direnv only runs once it's installed **and hooked into your shell**, and the hook is **not** automatic. `direnv allow` alone does nothing without the hook. One-time setup:
+
+```sh
+brew install direnv                            # if not already installed
+
+# Hook direnv into your shell (zsh shown) — add at/near the END of the file:
+echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc   # bash: direnv hook bash >> ~/.bashrc
+source ~/.zshrc
+
+cp .env.example .env                           # then fill in SG_BASE_URL (+ token if enterprise)
+direnv allow                                   # trust this repo's .envrc, once per clone
+echo "SG_BASE_URL=$SG_BASE_URL"                # verify it loaded
+```
+
+Note: direnv exports into your **interactive shell**, so a server spawned by a GUI-launched MCP client won't inherit it — for those, put the vars in the client's `env` block (see [Getting started](#getting-started)).
 
 ### Pre-commit hook (caveat: must be activated)
 

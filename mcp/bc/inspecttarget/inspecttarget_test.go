@@ -7,29 +7,27 @@ import (
 	"testing"
 
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/apperr"
-	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/sgclient"
 )
 
 type fakeFetcher struct {
 	gotRepo, gotPath, gotRev string
 	calls                    int
-	ret                      sgclient.FileContent
+	file                     File
+	found                    bool
 	err                      error
 }
 
-func (f *fakeFetcher) FetchFile(_ context.Context, repo, path, rev string) (sgclient.FileContent, error) {
+func (f *fakeFetcher) FetchFile(_ context.Context, repo, path, rev string) (File, bool, error) {
 	f.calls++
 	f.gotRepo, f.gotPath, f.gotRev = repo, path, rev
-	return f.ret, f.err
+	return f.file, f.found, f.err
 }
 
 func TestExecute_HappyPath(t *testing.T) {
-	f := &fakeFetcher{ret: sgclient.FileContent{
-		Path:        "dir/f.go",
-		Content:     "package main\n",
-		RevResolved: "abc123",
-		SizeBytes:   12,
-	}}
+	f := &fakeFetcher{
+		file:  File{Content: "package main\n", RevResolved: "abc123", SizeBytes: 12},
+		found: true,
+	}
 	out, err := Execute(context.Background(), f, Input{Repo: "github.com/a/one", Path: "dir/f.go"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -66,7 +64,7 @@ func TestExecute_InvalidInput(t *testing.T) {
 }
 
 func TestExecute_NotFound(t *testing.T) {
-	f := &fakeFetcher{err: sgclient.ErrNotFound}
+	f := &fakeFetcher{found: false} // file does not exist
 	_, err := Execute(context.Background(), f, Input{Repo: "r", Path: "missing.go"})
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
@@ -77,7 +75,7 @@ func TestExecute_NotFound(t *testing.T) {
 }
 
 func TestExecute_UpstreamError(t *testing.T) {
-	f := &fakeFetcher{err: sgclient.ErrUpstreamUnavailable}
+	f := &fakeFetcher{err: errors.New("connection refused")}
 	_, err := Execute(context.Background(), f, Input{Repo: "r", Path: "f.go"})
 	if !errors.Is(err, ErrUpstream) {
 		t.Errorf("err = %v, want ErrUpstream", err)
@@ -88,10 +86,10 @@ func TestExecute_UpstreamError(t *testing.T) {
 }
 
 func TestExecute_TooLarge(t *testing.T) {
-	f := &fakeFetcher{ret: sgclient.FileContent{
-		Content:   strings.Repeat("x", 10),
-		SizeBytes: MaxFileBytes + 1,
-	}}
+	f := &fakeFetcher{
+		file:  File{SizeBytes: MaxFileBytes + 1},
+		found: true,
+	}
 	_, err := Execute(context.Background(), f, Input{Repo: "r", Path: "big.go"})
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("err = %v, want ErrTooLarge", err)

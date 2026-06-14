@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"log/slog"
 	"os"
@@ -25,24 +26,30 @@ import (
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/sgclient"
 )
 
-const defaultEndpoint = "https://sourcegraph.com/.api/graphql"
-
 func main() {
-	endpoint := flag.String("endpoint", defaultEndpoint, "Sourcegraph GraphQL endpoint")
+	endpoint := flag.String("endpoint", os.Getenv("SG_BASE_URL"), "Sourcegraph GraphQL endpoint (or SG_BASE_URL)")
 	flag.Parse()
 
 	// stdout is the JSON-RPC channel; logs are JSON on stderr so the two streams
 	// stay segregated and the protocol stream is never corrupted.
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
-	client := sgclient.New(*endpoint, sgclient.WithToken(os.Getenv("SRC_ACCESS_TOKEN")))
+	// Fail fast on missing config: an empty endpoint would otherwise start the
+	// server and surface as a misleading UPSTREAM_UNAVAILABLE on every call.
+	if *endpoint == "" {
+		logger.Error("missing Sourcegraph endpoint: set SG_BASE_URL or pass -endpoint " +
+			"(e.g. https://sourcegraph.com/.api/graphql)")
+		os.Exit(1)
+	}
+
+	client := sgclient.New(*endpoint, sgclient.WithToken(os.Getenv("SG_ACCESS_TOKEN")))
 
 	s := server.NewMCPServer("bc", "0.1.0",
 		server.WithToolCapabilities(true),
 	)
 
 	s.AddTool(findTargetsTool(), findTargetsHandler(client, logger))
-	s.AddTool(inspectTargetTool(), inspectTargetHandler(client, logger))
+	s.AddTool(inspectTargetTool(), inspectTargetHandler(sgFetcher{client: client}, logger))
 
 	if err := server.ServeStdio(s); err != nil {
 		logger.Error("server stopped", "error", err.Error())
@@ -64,7 +71,7 @@ func findTargetsTool() mcp.Tool {
 	)
 }
 
-func findTargetsHandler(client *sgclient.Client, logger *slog.Logger) server.ToolHandlerFunc {
+func findTargetsHandler(searcher findtargets.Searcher, logger *slog.Logger) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		query := req.GetString("query", "")
 		maxRepos := req.GetInt("max_repos", findtargets.DefaultMaxRepos)
@@ -76,7 +83,7 @@ func findTargetsHandler(client *sgclient.Client, logger *slog.Logger) server.Too
 		))
 		log.Debug("tool call")
 
-		out, err := findtargets.Execute(ctx, client, findtargets.Input{Query: query, MaxRepos: maxRepos})
+		out, err := findtargets.Execute(ctx, searcher, findtargets.Input{Query: query, MaxRepos: maxRepos})
 		if err != nil {
 			return respondError(log, err), nil
 		}
@@ -96,7 +103,7 @@ func inspectTargetTool() mcp.Tool {
 	)
 }
 
-func inspectTargetHandler(client *sgclient.Client, logger *slog.Logger) server.ToolHandlerFunc {
+func inspectTargetHandler(fetcher inspecttarget.Fetcher, logger *slog.Logger) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		repo := req.GetString("repo", "")
 		path := req.GetString("path", "")
@@ -110,13 +117,36 @@ func inspectTargetHandler(client *sgclient.Client, logger *slog.Logger) server.T
 		))
 		log.Debug("tool call")
 
-		out, err := inspecttarget.Execute(ctx, client, inspecttarget.Input{Repo: repo, Path: path, Rev: rev})
+		out, err := inspecttarget.Execute(ctx, fetcher, inspecttarget.Input{Repo: repo, Path: path, Rev: rev})
 		if err != nil {
 			return respondError(log, err), nil
 		}
 
 		return respondJSON(log, out)
 	}
+}
+
+// sgFetcher adapts the Sourcegraph client to inspecttarget's Fetcher port. It is
+// the anti-corruption boundary: it translates sgclient's types and its
+// not-found sentinel into the use case's own vocabulary, which is why
+// inspecttarget imports no transport package.
+type sgFetcher struct {
+	client *sgclient.Client
+}
+
+func (f sgFetcher) FetchFile(ctx context.Context, repo, path, rev string) (inspecttarget.File, bool, error) {
+	fc, err := f.client.FetchFile(ctx, repo, path, rev)
+	switch {
+	case errors.Is(err, sgclient.ErrNotFound):
+		return inspecttarget.File{}, false, nil
+	case err != nil:
+		return inspecttarget.File{}, false, err
+	}
+	return inspecttarget.File{
+		Content:     fc.Content,
+		RevResolved: fc.RevResolved,
+		SizeBytes:   fc.SizeBytes,
+	}, true, nil
 }
 
 // errorBody is the decoupled error the client receives: code and message as
