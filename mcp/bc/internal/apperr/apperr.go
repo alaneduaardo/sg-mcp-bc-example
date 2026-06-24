@@ -39,6 +39,14 @@ func (e *Error) Wrap(cause error) *Error {
 	return &Error{code: e.code, message: e.message, cause: cause, sentinel: e}
 }
 
+// WithMessage derives an error from sentinel e with a custom, client-facing
+// message — for errors whose detail is safe and actionable for the caller (e.g.
+// field-level validation issues, per a tool's contract). errors.Is(result, e)
+// still holds. The message is client-facing; it must not carry internal detail.
+func (e *Error) WithMessage(message string) *Error {
+	return &Error{code: e.code, message: message, sentinel: e}
+}
+
 // Code is the stable, machine-readable contract code.
 func (e *Error) Code() string { return e.code }
 

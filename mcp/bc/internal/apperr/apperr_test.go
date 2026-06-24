@@ -35,6 +35,24 @@ func TestCode_ExtractsThroughWrapping(t *testing.T) {
 	}
 }
 
+func TestWithMessage_OverridesMessageKeepsIdentity(t *testing.T) {
+	sentinel := New("VALIDATION_FAILED", "validation failed")
+	detailed := sentinel.WithMessage("name is required; branch is invalid")
+
+	if !errors.Is(detailed, sentinel) {
+		t.Error("errors.Is(detailed, sentinel) = false, want true")
+	}
+	if detailed.Code() != "VALIDATION_FAILED" {
+		t.Errorf("Code() = %q", detailed.Code())
+	}
+	if detailed.Message() != "name is required; branch is invalid" {
+		t.Errorf("Message() = %q", detailed.Message())
+	}
+	if code, _ := Code(detailed); code != "VALIDATION_FAILED" {
+		t.Errorf("Code(detailed) = %q", code)
+	}
+}
+
 func TestCode_AbsentReturnsFalse(t *testing.T) {
 	if code, ok := Code(errors.New("plain")); ok {
 		t.Errorf("Code() ok = true (code %q), want false for a non-coded error", code)

@@ -20,10 +20,14 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/createspec"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/findtargets"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/inspecttarget"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/apperr"
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/sgclient"
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/targeting"
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/preview"
+	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/requestpublish"
 )
 
 func main() {
@@ -50,6 +54,9 @@ func main() {
 
 	s.AddTool(findTargetsTool(), findTargetsHandler(client, logger))
 	s.AddTool(inspectTargetTool(), inspectTargetHandler(sgFetcher{client: client}, logger))
+	s.AddTool(createSpecTool(), createSpecHandler(logger))
+	s.AddTool(previewTool(), previewHandler(sgResolver{client: client}, logger))
+	s.AddTool(requestPublishTool(), requestPublishHandler(logger))
 
 	if err := server.ServeStdio(s); err != nil {
 		logger.Error("server stopped", "error", err.Error())
@@ -124,6 +131,210 @@ func inspectTargetHandler(fetcher inspecttarget.Fetcher, logger *slog.Logger) se
 
 		return respondJSON(log, out)
 	}
+}
+
+func createSpecTool() mcp.Tool {
+	return mcp.NewTool("bc_create_spec",
+		mcp.WithDescription("Assemble and validate the declarative Batch Changes spec from the conversation. "+
+			"Composition only — never executes. Returns canonical YAML, a valid flag, and warnings. "+
+			"v1: deterministic container steps only."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithString("name", mcp.Required(), mcp.Description("batch change name (alphanumeric with . _ - separators)")),
+		mcp.WithString("description", mcp.Description("human description of the change")),
+		mcp.WithObject("on", mcp.Required(),
+			mcp.Description("repository targeting"),
+			mcp.Properties(map[string]any{
+				"repositoriesMatchingQuery": map[string]any{
+					"type":        "string",
+					"description": "Sourcegraph search query, from bc_find_targets.normalized_query",
+				},
+			})),
+		mcp.WithArray("steps", mcp.Required(),
+			mcp.Description("deterministic container steps (v1)"),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"run":       map[string]any{"type": "string", "description": "container command"},
+					"container": map[string]any{"type": "string", "description": "container image"},
+				},
+				"required": []string{"run", "container"},
+			})),
+		mcp.WithObject("changeset_template", mcp.Required(),
+			mcp.Description("the changeset (PR) each affected repo receives"),
+			mcp.Properties(map[string]any{
+				"title":  map[string]any{"type": "string"},
+				"body":   map[string]any{"type": "string"},
+				"branch": map[string]any{"type": "string", "description": "git branch name"},
+				"commit": map[string]any{
+					"type":       "object",
+					"properties": map[string]any{"message": map[string]any{"type": "string"}},
+					"required":   []string{"message"},
+				},
+			})),
+	)
+}
+
+// createSpecArgs mirrors the bc_create_spec input schema for BindArguments.
+type createSpecArgs struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	On          struct {
+		RepositoriesMatchingQuery string `json:"repositoriesMatchingQuery"`
+	} `json:"on"`
+	Steps []struct {
+		Run       string `json:"run"`
+		Container string `json:"container"`
+	} `json:"steps"`
+	ChangesetTemplate struct {
+		Title  string `json:"title"`
+		Body   string `json:"body"`
+		Branch string `json:"branch"`
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+	} `json:"changeset_template"`
+}
+
+func createSpecHandler(logger *slog.Logger) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args createSpecArgs
+		if err := req.BindArguments(&args); err != nil {
+			log := logger.With(slog.Group("request", "tool", "bc_create_spec"))
+			return respondError(log, createspec.ErrValidationFailed.WithMessage("invalid arguments: "+err.Error())), nil
+		}
+
+		log := logger.With(slog.Group("request", "tool", "bc_create_spec", "name", args.Name))
+		log.Debug("tool call")
+
+		steps := make([]createspec.Step, len(args.Steps))
+		for i, s := range args.Steps {
+			steps[i] = createspec.Step{Run: s.Run, Container: s.Container}
+		}
+		out, err := createspec.Execute(ctx, createspec.Input{
+			Name:        args.Name,
+			Description: args.Description,
+			Query:       args.On.RepositoriesMatchingQuery,
+			Steps:       steps,
+			Template: createspec.ChangesetTemplate{
+				Title:         args.ChangesetTemplate.Title,
+				Body:          args.ChangesetTemplate.Body,
+				Branch:        args.ChangesetTemplate.Branch,
+				CommitMessage: args.ChangesetTemplate.Commit.Message,
+			},
+		})
+		if err != nil {
+			return respondError(log, err), nil
+		}
+
+		return respondJSON(log, out)
+	}
+}
+
+func previewTool() mcp.Tool {
+	return mcp.NewTool("bc_preview",
+		mcp.WithDescription("Resolve what a batch spec would touch, without touching anything. "+
+			"Returns the repos the spec's on-query matches, an estimated changeset count, validation, "+
+			"and a boundary note. Target resolution is real; step execution is out of scope."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithString("spec_yaml", mcp.Required(), mcp.Description("canonical batch spec YAML, e.g. from bc_create_spec")),
+	)
+}
+
+func previewHandler(resolver preview.Resolver, logger *slog.Logger) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		specYAML := req.GetString("spec_yaml", "")
+
+		log := logger.With(slog.Group("request", "tool", "bc_preview"))
+		log.Debug("tool call")
+
+		out, err := preview.Execute(ctx, resolver, preview.Input{SpecYAML: specYAML})
+		if err != nil {
+			return respondError(log, err), nil
+		}
+
+		return respondJSON(log, out)
+	}
+}
+
+func requestPublishTool() mcp.Tool {
+	return mcp.NewTool("bc_request_publish",
+		mcp.WithDescription("Governed publication request. v1 returns NOT_IMPLEMENTED plus the governance "+
+			"semantics publication would require — the refusal is the deliverable, and human approval is an "+
+			"invariant, not a feature flag. (v1 has no side effects.)"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithString("spec_yaml", mcp.Required(), mcp.Description("the spec proposed for publication")),
+		mcp.WithObject("approval", mcp.Required(),
+			mcp.Description("human authorization — no agent self-approval"),
+			mcp.Properties(map[string]any{
+				"approver": map[string]any{"type": "string", "description": "human identity (required)"},
+				"token":    map[string]any{"type": "string", "description": "out-of-band approval token"},
+			})),
+		mcp.WithObject("rollout",
+			mcp.Description("staged-rollout configuration"),
+			mcp.Properties(map[string]any{
+				"mode":                 map[string]any{"type": "string", "enum": []string{"staged"}, "default": "staged"},
+				"initial_batch":        map[string]any{"type": "integer", "default": 5},
+				"halt_on_failure_rate": map[string]any{"type": "number", "default": 0.2},
+			})),
+	)
+}
+
+// requestPublishArgs mirrors the bc_request_publish input schema for BindArguments.
+type requestPublishArgs struct {
+	SpecYAML string `json:"spec_yaml"`
+	Approval struct {
+		Approver string `json:"approver"`
+		Token    string `json:"token"`
+	} `json:"approval"`
+	Rollout struct {
+		Mode              string  `json:"mode"`
+		InitialBatch      int     `json:"initial_batch"`
+		HaltOnFailureRate float64 `json:"halt_on_failure_rate"`
+	} `json:"rollout"`
+}
+
+func requestPublishHandler(logger *slog.Logger) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args requestPublishArgs
+		_ = req.BindArguments(&args) // the response is fixed; bind only to record the attempt
+
+		log := logger.With(slog.Group("request", "tool", "bc_request_publish", "approver", args.Approval.Approver))
+		log.Debug("tool call")
+
+		out, err := requestpublish.Execute(ctx, requestpublish.Input{
+			SpecYAML: args.SpecYAML,
+			Approval: requestpublish.Approval{Approver: args.Approval.Approver, Token: args.Approval.Token},
+			Rollout: requestpublish.Rollout{
+				Mode:              args.Rollout.Mode,
+				InitialBatch:      args.Rollout.InitialBatch,
+				HaltOnFailureRate: args.Rollout.HaltOnFailureRate,
+			},
+		})
+		if err != nil {
+			return respondError(log, err), nil
+		}
+
+		return respondJSON(log, out)
+	}
+}
+
+// sgResolver adapts the Sourcegraph client to preview's Resolver port: it runs
+// the search and projects results down to repo names. Query construction lives
+// in the use case, so this adapter can only fail on transport.
+type sgResolver struct {
+	client *sgclient.Client
+}
+
+func (r sgResolver) ResolveRepos(ctx context.Context, query targeting.Query) (preview.Resolution, error) {
+	targets, err := r.client.Search(ctx, query, 0) // 0 = no client-side cap; the search limit applies
+	if err != nil {
+		return preview.Resolution{}, err
+	}
+	repos := make([]string, 0, len(targets.Items))
+	for _, t := range targets.Items {
+		repos = append(repos, t.Repo)
+	}
+	return preview.Resolution{Repos: repos, Truncated: targets.Truncated}, nil
 }
 
 // sgFetcher adapts the Sourcegraph client to inspecttarget's Fetcher port. It is

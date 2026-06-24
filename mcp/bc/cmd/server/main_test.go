@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -349,6 +350,163 @@ func TestInspectTargetHandler_InvalidInputShortCircuits(t *testing.T) {
 	}
 	if *hit {
 		t.Error("invalid input must not reach the upstream")
+	}
+}
+
+func TestCreateSpecHandler_Success(t *testing.T) {
+	h := createSpecHandler(discardLogger())
+	res, err := h(context.Background(), callReq("bc_create_spec", map[string]any{
+		"name":        "wrap-errors",
+		"description": "wrap errors with %w",
+		"on":          map[string]any{"repositoriesMatchingQuery": "repo:foo lang:go fmt.Errorf"},
+		"steps":       []any{map[string]any{"run": "gofmt -w .", "container": "golang:1.25"}},
+		"changeset_template": map[string]any{
+			"title": "chore: wrap", "body": "automated", "branch": "batch/wrap",
+			"commit": map[string]any{"message": "chore: wrap"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("handler err: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error result: %q", resultText(t, res))
+	}
+	var out struct {
+		SpecYAML string `json:"spec_yaml"`
+		Valid    bool   `json:"valid"`
+	}
+	if err := json.Unmarshal([]byte(resultText(t, res)), &out); err != nil {
+		t.Fatalf("output not JSON: %v", err)
+	}
+	if !out.Valid || !strings.Contains(out.SpecYAML, "name: wrap-errors") {
+		t.Errorf("out = %+v", out)
+	}
+}
+
+func TestCreateSpecHandler_ValidationFailed(t *testing.T) {
+	h := createSpecHandler(discardLogger())
+	res, err := h(context.Background(), callReq("bc_create_spec", map[string]any{
+		// name omitted → VALIDATION_FAILED
+		"on":                 map[string]any{"repositoriesMatchingQuery": "repo:foo"},
+		"steps":              []any{map[string]any{"run": "x", "container": "y"}},
+		"changeset_template": map[string]any{"title": "t", "branch": "feat/x", "commit": map[string]any{"message": "m"}},
+	}))
+	if err != nil {
+		t.Fatalf("handler err: %v", err)
+	}
+	eb := parseClientError(t, res)
+	if eb.Code != "VALIDATION_FAILED" {
+		t.Errorf("code = %q, want VALIDATION_FAILED", eb.Code)
+	}
+	if !strings.Contains(eb.Message, "name is required") {
+		t.Errorf("client message must carry field detail, got %q", eb.Message)
+	}
+}
+
+const previewSpecYAML = "name: x\n" +
+	"on:\n  - repositoriesMatchingQuery: repo:foo lang:go\n" +
+	"steps:\n  - run: gofmt -w .\n    container: golang:1.25\n" +
+	"changesetTemplate:\n  title: t\n  body: b\n  branch: feat/x\n  commit:\n    message: m\n"
+
+func TestPreviewHandler_Success(t *testing.T) {
+	client, hit := gqlServer(t, http.StatusOK, searchOneRepo)
+	h := previewHandler(sgResolver{client: client}, discardLogger())
+
+	res, err := h(context.Background(), callReq("bc_preview", map[string]any{"spec_yaml": previewSpecYAML}))
+	if err != nil {
+		t.Fatalf("handler err: %v", err)
+	}
+	if !*hit {
+		t.Error("expected the resolver to query the upstream")
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error result: %q", resultText(t, res))
+	}
+	var out struct {
+		ResolvedRepos       []string `json:"resolved_repos"`
+		EstimatedChangesets int      `json:"estimated_changesets"`
+		Truncated           bool     `json:"truncated"`
+		BoundaryNote        string   `json:"boundary_note"`
+	}
+	if err := json.Unmarshal([]byte(resultText(t, res)), &out); err != nil {
+		t.Fatalf("output not JSON: %v", err)
+	}
+	if len(out.ResolvedRepos) != 1 || out.ResolvedRepos[0] != "github.com/a/one" {
+		t.Errorf("ResolvedRepos = %v", out.ResolvedRepos)
+	}
+	if out.EstimatedChangesets != 1 || out.BoundaryNote == "" || out.Truncated {
+		t.Errorf("out = %+v", out)
+	}
+}
+
+func TestPreviewHandler_SurfacesTruncation(t *testing.T) {
+	// A search that hit its limit (limitHit:true) must surface truncated:true.
+	const truncatedSearch = `{"data":{"search":{"results":{"matchCount":1,"limitHit":true,"results":[` +
+		`{"__typename":"FileMatch","repository":{"name":"github.com/a/one"},"file":{"path":"x.go"}}]}}}}`
+	client, _ := gqlServer(t, http.StatusOK, truncatedSearch)
+	h := previewHandler(sgResolver{client: client}, discardLogger())
+
+	res, err := h(context.Background(), callReq("bc_preview", map[string]any{"spec_yaml": previewSpecYAML}))
+	if err != nil {
+		t.Fatalf("handler err: %v", err)
+	}
+	var out struct {
+		Truncated  bool `json:"truncated"`
+		Validation struct {
+			Issues []string `json:"issues"`
+		} `json:"validation"`
+	}
+	if err := json.Unmarshal([]byte(resultText(t, res)), &out); err != nil {
+		t.Fatalf("output not JSON: %v", err)
+	}
+	if !out.Truncated {
+		t.Error("truncated = false, want true when the search hit its limit")
+	}
+	if !strings.Contains(strings.Join(out.Validation.Issues, " "), "truncated") {
+		t.Errorf("validation issues should note truncation: %v", out.Validation.Issues)
+	}
+}
+
+func TestPreviewHandler_InvalidSpec(t *testing.T) {
+	client, _ := gqlServer(t, http.StatusOK, searchOneRepo)
+	h := previewHandler(sgResolver{client: client}, discardLogger())
+
+	res, err := h(context.Background(), callReq("bc_preview", map[string]any{"spec_yaml": "name: [oops"}))
+	if err != nil {
+		t.Fatalf("handler err: %v", err)
+	}
+	if eb := parseClientError(t, res); eb.Code != "INVALID_SPEC" {
+		t.Errorf("code = %q, want INVALID_SPEC", eb.Code)
+	}
+}
+
+func TestRequestPublishHandler_Refuses(t *testing.T) {
+	h := requestPublishHandler(discardLogger())
+	res, err := h(context.Background(), callReq("bc_request_publish", map[string]any{
+		"spec_yaml": "name: x\n",
+		"approval":  map[string]any{"approver": "alice@example.com", "token": "tok"},
+		"rollout":   map[string]any{"mode": "staged", "initial_batch": 5, "halt_on_failure_rate": 0.2},
+	}))
+	if err != nil {
+		t.Fatalf("handler err: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("should be a structured refusal, not an error: %q", resultText(t, res))
+	}
+	var out struct {
+		Status     string `json:"status"`
+		Governance struct {
+			Default string `json:"default"`
+		} `json:"governance_semantics"`
+	}
+	if err := json.Unmarshal([]byte(resultText(t, res)), &out); err != nil {
+		t.Fatalf("output not JSON: %v", err)
+	}
+	if out.Status != "NOT_IMPLEMENTED" {
+		t.Errorf("status = %q, want NOT_IMPLEMENTED", out.Status)
+	}
+	if !strings.Contains(out.Governance.Default, "invariant") {
+		t.Errorf("governance default should state the invariant, got %q", out.Governance.Default)
 	}
 }
 

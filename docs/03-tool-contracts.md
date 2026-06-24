@@ -96,6 +96,7 @@ Purpose: resolve what the spec *would* touch, without touching anything.
   "output": {
     "resolved_repos": ["string"],
     "estimated_changesets": "integer",
+    "truncated": "boolean  // resolution capped by the search limit; counts are a lower bound",
     "validation": {"valid": "boolean", "issues": ["string"]},
     "boundary_note": "constant string: target resolution via public API; step
                       execution requires Enterprise executors and is out of scope"

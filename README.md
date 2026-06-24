@@ -1,6 +1,6 @@
 # MCP for Batch Changes — a governed write port (POC)
 
-> **Status:** POC v1 · **dry-run only** · human approval is an invariant, not a feature flag · 2 of 5 tools implemented.
+> **Status:** POC v1 · **dry-run only** · human approval is an invariant, not a feature flag · all 5 tools implemented.
 
 An exploration of one idea: expose Sourcegraph **Batch Changes** through an **MCP** server so that an agent can *compose* a batch change in conversation with a developer — discover targets, inspect code, assemble and validate the declarative spec, preview what it would touch — while **publication stays behind explicit human approval**.
 
@@ -56,9 +56,9 @@ The structured batch spec is not a limitation — it is the guardrail: an agent 
 |---|---|---|
 | `bc_find_targets` | Turn a search query into batch-change targeting (the `on:` clause factory) — per-repo counts + sample paths + a normalized query | ✅ implemented |
 | `bc_inspect_target` | Fetch full file content in the context of a target, to ground a transformation | ✅ implemented |
-| `bc_create_spec` | Compose and validate the declarative batch spec (pure; never executes) | ⏳ planned |
-| `bc_preview` | Resolve what the spec *would* touch, without touching anything | ⏳ planned |
-| `bc_request_publish` | Contract only — returns `NOT_IMPLEMENTED` plus the governance semantics. The refusal *is* the deliverable | ⏳ planned (contract) |
+| `bc_create_spec` | Compose and validate the declarative batch spec (pure; never executes) | ✅ implemented |
+| `bc_preview` | Resolve what the spec *would* touch, without touching anything | ✅ implemented |
+| `bc_request_publish` | Contract only — returns `NOT_IMPLEMENTED` plus the governance semantics. The refusal *is* the deliverable | ✅ implemented (contract) |
 
 **Public-API boundary:** target resolution and file reading run for real against the public Sourcegraph instance. Step execution and publication are Enterprise surfaces and are **out of scope** — `bc_request_publish` ships as a documented contract, not an implementation.
 
@@ -71,11 +71,11 @@ mcp/bc/
     cmd/server/        → MCP entry point: wiring + tool registration (stdio)
     findtargets/       → use case (bc_find_targets)
     inspecttarget/     → use case (bc_inspect_target)
-    createspec/        → use case (planned)
-    preview/           → use case (planned)
-    requestpublish/    → use case (planned, contract-only)
+    createspec/        → use case (bc_create_spec)
+    preview/           → use case (bc_preview)
+    requestpublish/    → use case (bc_request_publish, contract-only)
     internal/
-        batchspec/     → the product's central artifact: aggregate, invariants, YAML (planned)
+        batchspec/     → the product's central artifact: aggregate, invariants, YAML
         targeting/     → value objects: normalized Query + resolved Targets
         sgclient/      → Sourcegraph transport: HTTP, auth, GraphQL, error mapping
         apperr/        → coded application errors (contract code + message) shared
