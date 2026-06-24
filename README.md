@@ -43,7 +43,7 @@ The structured batch spec is not a limitation — it is the guardrail: an agent 
 
 | Doc | What it covers |
 |---|---|
-| [`01-code-plane-analysis.md`](docs/01-code-plane-analysis.md) | The complete analysis: strategy, the two organizational ironies, the hypothesis, the measurement gap |
+| [`01-code-plane-analysis.md`](docs/01-code-plane-analysis.md) | The complete analysis: strategy, the two organizational curiosities, the hypothesis, the measurement gap |
 | [`02-architecture.md`](docs/02-architecture.md) | Design axioms, the package tree, import rules, prepared defenses |
 | [`03-tool-contracts.md`](docs/03-tool-contracts.md) | Input/output/error contracts for all five tools + the demo narrative |
 | [`04-build-plan.md`](docs/04-build-plan.md) | Build cycles and the primary-source verification checklist |

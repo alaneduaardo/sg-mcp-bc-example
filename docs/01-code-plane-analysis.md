@@ -38,15 +38,15 @@ Implication for everything that follows: the buyer is enterprise, the consumer i
 - Friction 2: …
 - Friction 3: …
 
-## §3 — Two organizational ironies (verifiable from public sources)
+## §3 — Two organizational curiosities (verifiable from public sources)
 
-**Irony 1 — Code Plane owns the pipe; the pipe carries the neighbor's product.**
+**Curiosity 1 — Code Plane owns the pipe; the pipe carries the neighbor's product.**
 The MCP server is owned by Code Plane, yet the tools it exposes today — search, file/repo browsing, commits, diffs, Deep Search — are all *read* capabilities belonging to the Code Understanding surface. None of Code Plane's own *action* surfaces (Batch Changes, Monitors, Insights) is reachable through it. The integration layer built by the action team currently transports only the understanding team's product. [VERIFY: current tool list of the default MCP endpoint vs. /all endpoint, from official docs]
 
-**Irony 2 — The action arm and the measurement arm live in the same team and don't touch.**
+**Curiosity 2 — The action arm and the measurement arm live in the same team and don't touch.**
 Batch Changes executes mass change; Code Insights measures code over time. A batch change's post-merge repercussion — adoption, regression, reverts — is exactly what Insights exists to chart. No integration exists between them. [VERIFY: docs — absence of any Insights-over-Batch-Changes feature]
 
-Neither irony is an accusation — sequencing is the most likely explanation for both. But they mark, precisely, where the leverage is.
+Neither curiosity is an accusation — sequencing is the most likely explanation for both. But they mark, precisely, where the leverage is.
 
 ## §4 — The hypothesis: a governed MCP write port over the Batch Changes domain
 

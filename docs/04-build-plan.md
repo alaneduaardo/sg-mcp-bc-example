@@ -42,12 +42,12 @@ Build `internal/sgclient` + `internal/targeting`, test-first.
 
 ## Verification checklist (primary sources — before the doc is ever shared)
 
-1. MCP default endpoint tool list vs `/all` (official docs) → backs Irony 1.
+1. MCP default endpoint tool list vs `/all` (official docs) → backs Curiosity 1.
 2. Batch spec YAML reference: `on.repositoriesMatchingQuery`, steps shape → backs contracts and the targeting link.
 3. Rollout windows mechanics (docs) → backs §5 layer 3.
 4. MCP OAuth scope (docs) → backs governance claim.
 5. Amp split announcement + "infrastructure is the bottleneck" post → backs §1.
-6. Absence of Insights↔Batch Changes integration (docs) → backs Irony 2.
+6. Absence of Insights↔Batch Changes integration (docs) → backs Curiosity 2.
 7. Current values page (handbook) — separate purpose: values interview prep, read the night before.
 
 Standing rule: primary sources only. Search snippets and AI outputs are leads to confirm, never facts to cite. (The `codingAgent` incident is the precedent: a search-index artifact survived two exchanges until a direct fetch killed it.)
