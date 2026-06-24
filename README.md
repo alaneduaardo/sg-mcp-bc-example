@@ -57,10 +57,12 @@ The structured batch spec is not a limitation — it is the guardrail: an agent 
 | `bc_find_targets` | Turn search queries into batch-change targeting (the `on:` clause factory) — searched in parallel, merged into per-repo counts + sample paths + normalized queries | ✅ implemented |
 | `bc_inspect_target` | Fetch full file content in the context of a target, to ground a transformation | ✅ implemented |
 | `bc_create_spec` | Compose and validate the declarative batch spec (pure; never executes) | ✅ implemented |
-| `bc_preview` | Resolve what the spec *would* touch, without touching anything | ✅ implemented |
+| `bc_preview` | Resolve **completely** what the spec *would* touch (via `count:all`, not a ranked sample), with a changeset count and a staged-rollout phase estimate — without touching anything | ✅ implemented |
 | `bc_request_publish` | Contract only — returns `NOT_IMPLEMENTED` plus the governance semantics. The refusal *is* the deliverable | ✅ implemented (contract) |
 
 **Public-API boundary:** target resolution and file reading run for real against the public Sourcegraph instance. Step execution and publication are Enterprise surfaces and are **out of scope** — `bc_request_publish` ships as a documented contract, not an implementation.
+
+**Preview as a planning surface.** `bc_preview` resolves with `count:all`, so `resolved_repos` and `estimated_changesets` report the *complete* set a run would touch — the blast-radius surface, made concrete on the cross-repo asset Sourcegraph owns, not a ranked sample that silently under-counts. From that it derives `estimated_phases` — `ceil(changesets / batch_size)` at `bc_request_publish`'s default staged-rollout batch — foreshadowing *how many governed phases* publication would take, before any of them run. It is a deliberately first-order seed of the predictive **plan/capacity layer** argued for in [`01-code-plane-analysis.md`](docs/01-code-plane-analysis.md) §5: a phase *count*, not yet a blast-radius-ordered schedule — surfaced where the dry run already pays for the search.
 
 ---
 

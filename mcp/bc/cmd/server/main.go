@@ -236,8 +236,9 @@ func createSpecHandler(logger *slog.Logger) server.ToolHandlerFunc {
 func previewTool() mcp.Tool {
 	return mcp.NewTool("bc_preview",
 		mcp.WithDescription("Resolve what a batch spec would touch, without touching anything. "+
-			"Returns the repos the spec's on-query matches, an estimated changeset count, validation, "+
-			"and a boundary note. Target resolution is real; step execution is out of scope."),
+			"Returns the repos the spec's on-query matches (resolved completely via count:all, not a "+
+			"ranked sample), an estimated changeset count, an estimated staged-rollout phase count, "+
+			"validation, and a boundary note. Target resolution is real; step execution is out of scope."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("spec_yaml", mcp.Required(), mcp.Description("canonical batch spec YAML, e.g. from bc_create_spec")),
 	)
@@ -329,7 +330,7 @@ type sgResolver struct {
 }
 
 func (r sgResolver) ResolveRepos(ctx context.Context, query targeting.Query) (preview.Resolution, error) {
-	targets, err := r.client.Search(ctx, query, 0) // 0 = no client-side cap; the search limit applies
+	targets, err := r.client.SearchAll(ctx, query) // count:all: resolve completely, not a ranked sample
 	if err != nil {
 		return preview.Resolution{}, err
 	}

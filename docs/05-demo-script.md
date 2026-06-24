@@ -153,6 +153,7 @@ Agent → bc_preview { "spec_yaml": "<the spec_yaml from step 3>" }
 Result {
   "resolved_repos": ["github.com/sourcegraph/sourcegraph", "github.com/sourcegraph/src-cli", ...],
   "estimated_changesets": 7,
+  "estimated_phases": 2,        // ceil(7 / 5) — planning only; staged rollout is governed and out of v1 scope
   "truncated": false,
   "validation": { "valid": true, "issues": [] },
   "boundary_note": "target resolution runs against the public API; step execution requires Enterprise executors and is out of scope"
@@ -308,6 +309,7 @@ Agent → bc_preview {
 Result {
   "resolved_repos": ["github.com/sourcegraph/sourcegraph", ...],
   "estimated_changesets": 7,
+  "estimated_phases": 2,        // ceil(7 / 5) — planning only; staged rollout is governed and out of v1 scope
   "truncated": false,
   "validation": { "valid": true, "issues": [] },
   "boundary_note": "target resolution runs against the public API; step execution requires Enterprise executors and is out of scope"
@@ -357,6 +359,7 @@ Agent → bc_preview { "spec_yaml": "<the exact YAML from the UI>" }
 Result {
   "resolved_repos": [ /* compare against the UI's resolved repository list */ ],
   "estimated_changesets": 42,
+  "estimated_phases": 9,        // ceil(42 / 5) — planning only; staged rollout is governed and out of v1 scope
   "truncated": false,         // if true, the UI saw more; the search limit capped us — note it
   "validation": { "valid": true, "issues": [] },
   "boundary_note": "target resolution runs against the public API; step execution requires Enterprise executors and is out of scope"

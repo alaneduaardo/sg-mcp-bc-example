@@ -52,6 +52,9 @@ func TestExecute_ResolvesAndDedup(t *testing.T) {
 	if out.EstimatedChangesets != 2 {
 		t.Errorf("EstimatedChangesets = %d, want 2", out.EstimatedChangesets)
 	}
+	if out.EstimatedPhases != 1 { // 2 changesets, DefaultPhaseSize 5 → ceil = 1
+		t.Errorf("EstimatedPhases = %d, want 1", out.EstimatedPhases)
+	}
 	if !out.Validation.Valid {
 		t.Error("Validation.Valid = false, want true")
 	}
@@ -60,6 +63,23 @@ func TestExecute_ResolvesAndDedup(t *testing.T) {
 	}
 	if out.BoundaryNote == "" {
 		t.Error("BoundaryNote must be set on every preview")
+	}
+}
+
+func TestExecute_EstimatedPhasesRoundsUp(t *testing.T) {
+	// 6 repos at DefaultPhaseSize 5 must round up to 2 phases, not truncate to 1.
+	f := &fakeResolver{repos: []string{
+		"r/1", "r/2", "r/3", "r/4", "r/5", "r/6",
+	}}
+	out, err := Execute(context.Background(), f, Input{SpecYAML: validSpecYAML})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.EstimatedChangesets != 6 {
+		t.Fatalf("EstimatedChangesets = %d, want 6", out.EstimatedChangesets)
+	}
+	if out.EstimatedPhases != 2 {
+		t.Errorf("EstimatedPhases = %d, want 2", out.EstimatedPhases)
 	}
 }
 

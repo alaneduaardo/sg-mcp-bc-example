@@ -3,6 +3,7 @@ package sgclient
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/alaneduardo/sg-mcp-bc-example/mcp/bc/internal/targeting"
 )
@@ -53,9 +54,29 @@ type searchData struct {
 // This method satisfies the consumer-side Searcher interface that the
 // findtargets use case declares.
 func (c *Client) Search(ctx context.Context, q targeting.Query, maxRepos int) (targeting.Targets, error) {
+	return c.search(ctx, q.String(), maxRepos)
+}
+
+// SearchAll runs q with count:all so resolution is complete rather than bounded
+// by Sourcegraph's default result limit — preview needs an accurate repo set and
+// changeset estimate, not a ranked sample. Even count:all has an instance hard
+// cap, so the result can still come back Truncated; the count remains a lower
+// bound in that case. count:all is not appended if q already carries a count:
+// filter (the caller's intent wins).
+func (c *Client) SearchAll(ctx context.Context, q targeting.Query) (targeting.Targets, error) {
+	query := q.String()
+	if !strings.Contains(query, "count:") {
+		query += " count:all"
+	}
+	return c.search(ctx, query, 0)
+}
+
+// search is the shared resolution path: run the GraphQL query, aggregate file
+// matches into per-repo Targets, and apply the optional repo cap.
+func (c *Client) search(ctx context.Context, query string, maxRepos int) (targeting.Targets, error) {
 	var data searchData
-	if err := c.do(ctx, searchQuery, map[string]any{"query": q.String()}, &data); err != nil {
-		return targeting.Targets{}, fmt.Errorf("sgclient: search %q: %w", q.String(), err)
+	if err := c.do(ctx, searchQuery, map[string]any{"query": query}, &data); err != nil {
+		return targeting.Targets{}, fmt.Errorf("sgclient: search %q: %w", query, err)
 	}
 
 	// Aggregate file matches into per-repo accumulators, keeping first-seen

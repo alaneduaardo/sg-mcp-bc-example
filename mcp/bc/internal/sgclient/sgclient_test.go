@@ -123,6 +123,35 @@ func TestSearch_AggregatesByRepo(t *testing.T) {
 	}
 }
 
+func TestSearchAll_AppendsCountAll(t *testing.T) {
+	srv, captured := newServer(t, http.StatusOK, searchTwoRepos)
+	c := New(srv.URL)
+
+	targets, err := c.SearchAll(context.Background(), mustQuery(t, "needle"))
+	if err != nil {
+		t.Fatalf("SearchAll: %v", err)
+	}
+	if got := captured.body.Variables["query"]; got != "needle count:all" {
+		t.Errorf("query variable = %v, want %q", got, "needle count:all")
+	}
+	// No client-side cap: every distinct repo comes back.
+	if len(targets.Items) != 2 {
+		t.Errorf("Items len = %d, want 2 (uncapped)", len(targets.Items))
+	}
+}
+
+func TestSearchAll_PreservesExistingCountFilter(t *testing.T) {
+	srv, captured := newServer(t, http.StatusOK, searchTwoRepos)
+	c := New(srv.URL)
+
+	if _, err := c.SearchAll(context.Background(), mustQuery(t, "needle count:50")); err != nil {
+		t.Fatalf("SearchAll: %v", err)
+	}
+	if got := captured.body.Variables["query"]; got != "needle count:50" {
+		t.Errorf("query variable = %v, want the caller's count: kept verbatim", got)
+	}
+}
+
 func TestSearch_TruncatesToMaxRepos(t *testing.T) {
 	srv, _ := newServer(t, http.StatusOK, searchTwoRepos)
 	c := New(srv.URL)

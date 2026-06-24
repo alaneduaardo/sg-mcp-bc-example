@@ -92,6 +92,8 @@ v1 restriction, stated in the schema description: deterministic steps only. Agen
 ## 4. `bc_preview` — dry run (the local half of it)
 
 Purpose: resolve what the spec *would* touch, without touching anything.
+Resolution runs the on-query with `count:all` so the repo set is complete rather
+than a ranked sample; the instance's hard cap can still truncate it.
 
 ```json
 {
@@ -99,6 +101,7 @@ Purpose: resolve what the spec *would* touch, without touching anything.
   "output": {
     "resolved_repos": ["string"],
     "estimated_changesets": "integer",
+    "estimated_phases": "integer  // planning estimate: ceil(changesets / staged-rollout batch size, default 5); a lower bound when truncated",
     "truncated": "boolean  // resolution capped by the search limit; counts are a lower bound",
     "validation": {"valid": "boolean", "issues": ["string"]},
     "boundary_note": "constant string: target resolution via public API; step
@@ -107,6 +110,10 @@ Purpose: resolve what the spec *would* touch, without touching anything.
   "errors": ["INVALID_SPEC", "UPSTREAM_UNAVAILABLE"]
 }
 ```
+
+`estimated_phases` is planning information only — it mirrors `bc_request_publish`'s
+default staged-rollout batch size so a preview foreshadows how many governed
+phases publication would take. Preview never executes a rollout.
 
 ## 5. `bc_request_publish` — contract only (the governance statement)
 

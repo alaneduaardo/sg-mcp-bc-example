@@ -425,6 +425,7 @@ func TestPreviewHandler_Success(t *testing.T) {
 	var out struct {
 		ResolvedRepos       []string `json:"resolved_repos"`
 		EstimatedChangesets int      `json:"estimated_changesets"`
+		EstimatedPhases     int      `json:"estimated_phases"`
 		Truncated           bool     `json:"truncated"`
 		BoundaryNote        string   `json:"boundary_note"`
 	}
@@ -434,7 +435,7 @@ func TestPreviewHandler_Success(t *testing.T) {
 	if len(out.ResolvedRepos) != 1 || out.ResolvedRepos[0] != "github.com/a/one" {
 		t.Errorf("ResolvedRepos = %v", out.ResolvedRepos)
 	}
-	if out.EstimatedChangesets != 1 || out.BoundaryNote == "" || out.Truncated {
+	if out.EstimatedChangesets != 1 || out.EstimatedPhases != 1 || out.BoundaryNote == "" || out.Truncated {
 		t.Errorf("out = %+v", out)
 	}
 }

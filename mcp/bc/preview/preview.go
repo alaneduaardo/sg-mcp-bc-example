@@ -18,6 +18,13 @@ import (
 // declared where the user sees it.
 const boundaryNote = "target resolution runs against the public API; step execution requires Enterprise executors and is out of scope"
 
+// DefaultPhaseSize is the changesets-per-phase assumption behind estimated_phases.
+// It mirrors bc_request_publish's default staged-rollout initial_batch so a
+// preview's phase estimate matches what governed publication would plan. It is a
+// planning constant only — preview never executes a rollout. (Use cases don't
+// import each other, so the value is restated here, not shared.)
+const DefaultPhaseSize = 5
+
 // Contract errors (tool contract §4). INVALID_SPEC carries client-facing detail
 // (malformed or invalid spec) so the agent can fix it.
 var (
@@ -54,10 +61,14 @@ type Validation struct {
 
 // Output is the tool output (bc_preview). Truncated reports that target
 // resolution was capped by the search limit, so a real run may touch more repos
-// than listed — estimated_changesets is then a lower bound.
+// than listed — estimated_changesets and estimated_phases are then lower bounds.
+// EstimatedPhases is a planning estimate (changesets / DefaultPhaseSize, rounded
+// up) of how many staged-rollout phases publication would take; preview never
+// executes a rollout.
 type Output struct {
 	ResolvedRepos       []string   `json:"resolved_repos"`
 	EstimatedChangesets int        `json:"estimated_changesets"`
+	EstimatedPhases     int        `json:"estimated_phases"`
 	Truncated           bool       `json:"truncated"`
 	Validation          Validation `json:"validation"`
 	BoundaryNote        string     `json:"boundary_note"`
@@ -113,11 +124,20 @@ func Execute(ctx context.Context, resolver Resolver, in Input) (Output, error) {
 		issues = []string{}
 	}
 
+	changesets := len(resolved) // one changeset (PR) per matched repo; a lower bound when truncated
+
 	return Output{
 		ResolvedRepos:       resolved,
-		EstimatedChangesets: len(resolved), // one changeset (PR) per matched repo; a lower bound when truncated
+		EstimatedChangesets: changesets,
+		EstimatedPhases:     phases(changesets),
 		Truncated:           truncated,
 		Validation:          Validation{Valid: true, Issues: issues},
 		BoundaryNote:        boundaryNote,
 	}, nil
+}
+
+// phases is the ceiling division of changesets into DefaultPhaseSize-sized
+// staged-rollout phases: how many batches publication would run.
+func phases(changesets int) int {
+	return (changesets + DefaultPhaseSize - 1) / DefaultPhaseSize
 }
