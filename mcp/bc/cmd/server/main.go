@@ -66,11 +66,14 @@ func main() {
 
 func findTargetsTool() mcp.Tool {
 	return mcp.NewTool("bc_find_targets",
-		mcp.WithDescription("Turn a Sourcegraph search query into batch-change targeting. "+
-			"Returns per-repo occurrence counts and sample paths plus a normalized query ready "+
-			"for on.repositoriesMatchingQuery. Not a generic search tool."),
+		mcp.WithDescription("Turn Sourcegraph search queries into batch-change targeting. "+
+			"Takes one or more queries (a spec's on: clause is a list of rules), searches them "+
+			"in parallel, and returns the merged per-repo occurrence counts and sample paths plus "+
+			"the normalized queries ready for on.repositoriesMatchingQuery. Not a generic search tool."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Sourcegraph search syntax")),
+		mcp.WithArray("queries", mcp.Required(),
+			mcp.Description("one or more Sourcegraph search queries"),
+			mcp.Items(map[string]any{"type": "string"})),
 		mcp.WithInteger("max_repos",
 			mcp.Description("max repositories to return"),
 			mcp.DefaultNumber(findtargets.DefaultMaxRepos),
@@ -80,17 +83,17 @@ func findTargetsTool() mcp.Tool {
 
 func findTargetsHandler(searcher findtargets.Searcher, logger *slog.Logger) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		query := req.GetString("query", "")
+		queries := req.GetStringSlice("queries", nil)
 		maxRepos := req.GetInt("max_repos", findtargets.DefaultMaxRepos)
 
 		log := logger.With(slog.Group("request",
 			"tool", "bc_find_targets",
-			"query", query,
+			"queries", queries,
 			"max_repos", maxRepos,
 		))
 		log.Debug("tool call")
 
-		out, err := findtargets.Execute(ctx, searcher, findtargets.Input{Query: query, MaxRepos: maxRepos})
+		out, err := findtargets.Execute(ctx, searcher, findtargets.Input{Queries: queries, MaxRepos: maxRepos})
 		if err != nil {
 			return respondError(log, err), nil
 		}

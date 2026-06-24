@@ -108,7 +108,7 @@ func TestToolDefinitions(t *testing.T) {
 		wantRequired []string
 		wantProps    []string
 	}{
-		{"find", findTargetsTool(), "bc_find_targets", []string{"query"}, []string{"query", "max_repos"}},
+		{"find", findTargetsTool(), "bc_find_targets", []string{"queries"}, []string{"queries", "max_repos"}},
 		{"inspect", inspectTargetTool(), "bc_inspect_target", []string{"repo", "path"}, []string{"repo", "path", "rev"}},
 	}
 	for _, tc := range tests {
@@ -254,7 +254,7 @@ func TestFindTargetsHandler_Success(t *testing.T) {
 	client, hit := gqlServer(t, http.StatusOK, searchOneRepo)
 	h := findTargetsHandler(client, discardLogger())
 
-	res, err := h(context.Background(), callReq("bc_find_targets", map[string]any{"query": "needle"}))
+	res, err := h(context.Background(), callReq("bc_find_targets", map[string]any{"queries": []any{"needle"}}))
 	if err != nil {
 		t.Fatalf("handler err: %v", err)
 	}
@@ -266,16 +266,16 @@ func TestFindTargetsHandler_Success(t *testing.T) {
 	}
 
 	var out struct {
-		NormalizedQuery string `json:"normalized_query"`
-		Targets         []struct {
+		NormalizedQueries []string `json:"normalized_queries"`
+		Targets           []struct {
 			Repo string `json:"repo"`
 		} `json:"targets"`
 	}
 	if err := json.Unmarshal([]byte(resultText(t, res)), &out); err != nil {
 		t.Fatalf("output not JSON: %v", err)
 	}
-	if out.NormalizedQuery != "needle" {
-		t.Errorf("normalized_query = %q", out.NormalizedQuery)
+	if len(out.NormalizedQueries) != 1 || out.NormalizedQueries[0] != "needle" {
+		t.Errorf("normalized_queries = %v", out.NormalizedQueries)
 	}
 	if len(out.Targets) != 1 || out.Targets[0].Repo != "github.com/a/one" {
 		t.Errorf("targets = %+v", out.Targets)
@@ -286,7 +286,7 @@ func TestFindTargetsHandler_InvalidQueryShortCircuits(t *testing.T) {
 	client, hit := gqlServer(t, http.StatusOK, searchOneRepo)
 	h := findTargetsHandler(client, discardLogger())
 
-	res, err := h(context.Background(), callReq("bc_find_targets", map[string]any{"query": "   "}))
+	res, err := h(context.Background(), callReq("bc_find_targets", map[string]any{"queries": []any{"   "}}))
 	if err != nil {
 		t.Fatalf("handler err: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestFindTargetsHandler_Upstream(t *testing.T) {
 	client, _ := gqlServer(t, http.StatusInternalServerError, "boom")
 	h := findTargetsHandler(client, discardLogger())
 
-	res, err := h(context.Background(), callReq("bc_find_targets", map[string]any{"query": "needle"}))
+	res, err := h(context.Background(), callReq("bc_find_targets", map[string]any{"queries": []any{"needle"}}))
 	if err != nil {
 		t.Fatalf("handler err: %v", err)
 	}

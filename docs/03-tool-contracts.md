@@ -10,28 +10,31 @@
 
 ## 1. `bc_find_targets` — discovery (the `on:` clause factory)
 
-Purpose: turn a search query into batch-change targeting. Output is shaped for spec composition, not for browsing — this is deliberately *not* a generic search tool (the official MCP already exposes those; duplicating them would be incoherent).
+Purpose: turn search queries into batch-change targeting. A batch spec's `on:` clause is a *list* of rules, so the tool takes a list of queries, resolves them concurrently, and returns their merged union. Output is shaped for spec composition, not for browsing — this is deliberately *not* a generic search tool (the official MCP already exposes those; duplicating them would be incoherent).
 
 ```json
 {
   "input": {
-    "query":     {"type": "string", "desc": "Sourcegraph search syntax"},
+    "queries":   {"type": "array", "items": "string",
+      "desc": "one or more Sourcegraph search queries (searched in parallel)"},
     "max_repos": {"type": "integer", "default": 25, "max": 100}
   },
   "output": {
     "targets": [{
       "repo": "string",
-      "occurrence_count": "integer",
+      "occurrence_count": "integer  // summed across the queries that matched the repo",
       "sample_paths": ["string (≤5)"]
     }],
-    "normalized_query": {"type": "string",
-      "desc": "ready to drop into on.repositoriesMatchingQuery"},
-    "total_repos": "integer",
+    "normalized_queries": {"type": "array", "items": "string",
+      "desc": "deduplicated, normalized — each ready to drop into an on.repositoriesMatchingQuery rule"},
+    "total_repos": "integer  // distinct repos in the union",
     "truncated": "boolean"
   },
   "errors": ["INVALID_QUERY", "UPSTREAM_UNAVAILABLE"]
 }
 ```
+
+The queries fan out as independent searches (goroutines, joined before the merge; first failure cancels the rest). A repository matched by several queries appears once: occurrence counts add up and sample paths combine, deduplicated and re-capped. Duplicate queries collapse before the search. An empty list, or any query that normalizes to nothing, is `INVALID_QUERY` — caught before any network call.
 
 Token economics: fragments only (counts + sample paths). Full content is `bc_inspect_target`'s job — discovery is broad and cheap; inspection is narrow and deep.
 
@@ -64,7 +67,7 @@ Purpose: assemble and validate the existing declarative batch spec format from t
   "input": {
     "name": "string (spec name rules enforced)",
     "description": "string",
-    "on": {"repositoriesMatchingQuery": "string  // from bc_find_targets.normalized_query"},
+    "on": {"repositoriesMatchingQuery": "string  // a bc_find_targets.normalized_queries entry"},
     "steps": [{
       "run": "string (container command — deterministic steps only in v1)",
       "container": "string (image)"

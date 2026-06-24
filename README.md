@@ -19,13 +19,13 @@ flowchart TD
 
     subgraph compose["Composition layer — implemented · runs against the public API · dry-run only"]
         direction TB
-        ft["bc_find_targets<br/>search query → targets + normalized_query"]
+        ft["bc_find_targets<br/>search queries → targets + normalized_queries"]
         it["bc_inspect_target<br/>read file content → ground the steps"]
         cs["bc_create_spec<br/>assemble + validate the batch spec"]
         pv["bc_preview<br/>resolve what the spec would touch"]
 
         ft -->|"targets to inspect"| it
-        ft -->|"normalized_query → on.repositoriesMatchingQuery"| cs
+        ft -->|"normalized_queries → on.repositoriesMatchingQuery"| cs
         it -->|"grounded steps"| cs
         cs -->|"spec_yaml"| pv
     end
@@ -35,7 +35,7 @@ flowchart TD
     gate -. "v2 · gated on the measurement layer" .-> ent["Execution + publication<br/>Enterprise surface · out of scope"]
 ```
 
-Discovery feeds composition directly: `bc_find_targets`' `normalized_query` becomes the spec's `on.repositoriesMatchingQuery`, and `bc_inspect_target` grounds the transformation steps. Everything up to `bc_preview` is **dry-run** against the public API; `bc_request_publish` is the governed refusal — the thesis demonstrated by what it *won't* do.
+Discovery feeds composition directly: a `bc_find_targets` `normalized_queries` entry becomes the spec's `on.repositoriesMatchingQuery`, and `bc_inspect_target` grounds the transformation steps. Everything up to `bc_preview` is **dry-run** against the public API; `bc_request_publish` is the governed refusal — the thesis demonstrated by what it *won't* do.
 
 The structured batch spec is not a limitation — it is the guardrail: an agent that proposes a *validatable, diffable, human-reviewable* artifact before anything executes is the enterprise-viable shape of agent-driven change. v1 deliberately refuses to publish, because the measurement layer that would make publication safe (blast-radius scoring, CI-signal tiering, canary stop rules) does not yet exist.
 
@@ -54,7 +54,7 @@ The structured batch spec is not a limitation — it is the guardrail: an agent 
 
 | Tool | Purpose | Status |
 |---|---|---|
-| `bc_find_targets` | Turn a search query into batch-change targeting (the `on:` clause factory) — per-repo counts + sample paths + a normalized query | ✅ implemented |
+| `bc_find_targets` | Turn search queries into batch-change targeting (the `on:` clause factory) — searched in parallel, merged into per-repo counts + sample paths + normalized queries | ✅ implemented |
 | `bc_inspect_target` | Fetch full file content in the context of a target, to ground a transformation | ✅ implemented |
 | `bc_create_spec` | Compose and validate the declarative batch spec (pure; never executes) | ✅ implemented |
 | `bc_preview` | Resolve what the spec *would* touch, without touching anything | ✅ implemented |
@@ -80,6 +80,8 @@ mcp/bc/
         sgclient/      → Sourcegraph transport: HTTP, auth, GraphQL, error mapping
         apperr/        → coded application errors (contract code + message) shared
                          by the use cases and rendered by the server
+        fanout/        → run independent context-aware operations concurrently,
+                         joined in order (used by bc_find_targets' parallel search)
 docs/                  → the analysis and design documents (the primary deliverable)
 ```
 

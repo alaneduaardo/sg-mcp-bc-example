@@ -95,6 +95,7 @@ func Execute(ctx context.Context, resolver Resolver, in Input) (Output, error) {
 			seen[r] = struct{}{}
 		}
 	}
+
 	resolved := make([]string, 0, len(seen))
 	for r := range seen {
 		resolved = append(resolved, r)
